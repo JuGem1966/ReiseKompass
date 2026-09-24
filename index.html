@@ -1227,6 +1227,18 @@ const Tour = {
   forced: new Set(),      // place-IDs
   result: null,           // {stops[], totalSec, skipped[], warning, geometry, legDurationsSec}
 
+  /** Bevorzugte Startpunkte (in dieser Reihenfolge, Gross-/Kleinschreibung egal) */
+  PREFERRED_STARTS: ['fort augustus', 'the highland club', 'boathouse restaurant'],
+
+  preferredStartIds() {
+    const ids = [];
+    for (const pref of this.PREFERRED_STARTS) {
+      const hit = state.places.find(p => p.name.toLowerCase().includes(pref));
+      if (hit && !ids.includes(hit.id)) ids.push(hit.id);
+    }
+    return ids;
+  },
+
   init() {
     this.map = L.map('map-tour', { preferCanvas: true }).setView([46.8, 8.2], 8);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -1236,7 +1248,12 @@ const Tour = {
     $('#tour-budget').addEventListener('input', e => {
       $('#tour-budget-label').textContent = (Number(e.target.value)).toString().replace('.', ',') + ' h';
     });
-    $('#tour-start').addEventListener('change', () => { this.start = null; this.draw(); });
+    $('#tour-start').addEventListener('change', () => {
+      this.start = null;
+      state.settings.tourStartId = $('#tour-start').value || '';
+      saveState();
+      this.draw();
+    });
     $('#tour-start-gps').addEventListener('click', () => {
       GPS.start();
       if (GPS.pos) {
@@ -1269,9 +1286,23 @@ const Tour = {
 
   refreshPlaces() {
     const sel = $('#tour-start');
-    const sorted = [...state.places].sort((a, b) => a.name.localeCompare(b.name, 'de'));
+    const prevValue = sel.value;
+    // Bevorzugte Startpunkte (Fort Augustus, Highland Club, Boathouse) ganz nach oben
+    const prefIds = this.preferredStartIds();
+    const preferred = prefIds.map(id => state.places.find(p => p.id === id)).filter(Boolean);
+    const rest = state.places
+      .filter(p => !prefIds.includes(p.id))
+      .sort((a, b) => a.name.localeCompare(b.name, 'de'));
     sel.innerHTML = '<option value="">– Startpunkt wählen –</option>' +
-      sorted.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+      preferred.map(p => `<option value="${p.id}">⭐ ${esc(p.name)}</option>`).join('') +
+      rest.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+
+    // Auswahl: bisherige beibehalten, sonst gespeicherte, sonst bevorzugten Start
+    const ids = new Set(state.places.map(p => p.id));
+    if (prevValue && ids.has(prevValue)) sel.value = prevValue;
+    else if (state.settings.tourStartId && ids.has(state.settings.tourStartId)) sel.value = state.settings.tourStartId;
+    else if (preferred.length) sel.value = preferred[0].id;
+
     this.renderForcedList();
     this.draw();
   },
